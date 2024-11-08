@@ -1,50 +1,83 @@
-# template-for-proposals
+# awaited assignment
 
-A repository template for ECMAScript proposals.
+ECMAScript proposal and some parts of implementation for Awaited Assignment operation.
 
-## Before creating a proposal
+**Author:** Viktor (wentout) Vershanskiy
 
-Please ensure the following:
-  1. You have read the [process document](https://tc39.github.io/process-document/)
-  1. You have reviewed the [existing proposals](https://github.com/tc39/proposals/)
-  1. You are aware that your proposal requires being a member of TC39, or locating a TC39 delegate to “champion” your proposal
-
-## Create your proposal repo
-
-Follow these steps:
-  1. Click the green [“use this template”](https://github.com/tc39/template-for-proposals/generate) button in the repo header. (Note: Do not fork this repo in GitHub's web interface, as that will later prevent transfer into the TC39 organization)
-  1. Update ecmarkup and the biblio to the latest version: `npm install --save-dev ecmarkup@latest && npm install --save-dev --save-exact @tc39/ecma262-biblio@latest`.
-  1. Go to your repo settings page:
-      1. Under “General”, under “Features”, ensure “Issues” is checked, and disable “Wiki”, and “Projects” (unless you intend to use Projects)
-      1. Under “Pull Requests”, check “Always suggest updating pull request branches” and “automatically delete head branches”
-      1. Under the “Pages” section on the left sidebar, and set the source to “deploy from a branch”, select “gh-pages” in the branch dropdown, and then ensure that “Enforce HTTPS” is checked.
-      1. Under the “Actions” section on the left sidebar, under “General”, select “Read and write permissions” under “Workflow permissions” and click “Save”
-  1. [“How to write a good explainer”][explainer] explains how to make a good first impression.
-
-      > Each TC39 proposal should have a `README.md` file which explains the purpose
-      > of the proposal and its shape at a high level.
-      >
-      > ...
-      >
-      > The rest of this page can be used as a template ...
-
-      Your explainer can point readers to the `index.html` generated from `spec.emu`
-      via markdown like
-
-      ```markdown
-      You can browse the [ecmarkup output](https://ACCOUNT.github.io/PROJECT/)
-      or browse the [source](https://github.com/ACCOUNT/PROJECT/blob/HEAD/spec.emu).
-      ```
-
-      where *ACCOUNT* and *PROJECT* are the first two path elements in your project's Github URL.
-      For example, for github.com/**tc39**/**template-for-proposals**, *ACCOUNT* is “tc39”
-      and *PROJECT* is “template-for-proposals”.
+**Stage:** 0
 
 
-## Maintain your proposal repo
+## Overview and motivation
 
-  1. Make your changes to `spec.emu` (ecmarkup uses HTML syntax, but is not HTML, so I strongly suggest not naming it “.html”)
-  1. Any commit that makes meaningful changes to the spec, should run `npm run build` to verify that the build will succeed and the output looks as expected.
-  1. Whenever you update `ecmarkup`, run `npm run build` to verify that the build will succeed and the output looks as expected.
+Let consider the following JavaScript code piece we may use on modern engines right now (Nov 8, 2024):
 
-  [explainer]: https://github.com/tc39/how-we-work/blob/HEAD/explainer.md
+```js
+
+'use strict';
+
+const myObj = {};
+let field = 123;
+
+Object.defineProperty( myObj, 'field', {
+	async get () {
+		return new Promise( ( resolve, reject ) => {
+			setTimeout( () => {
+				resolve( field );
+			}, 1000 );
+		} );
+	},
+	async set ( value ) {
+		new Promise( ( resolve, reject ) => {
+			setTimeout( () => {
+				field = value;
+				resolve( field );
+			}, 100 );
+		} );
+	}
+} );
+
+```
+
+This code example above is fully functional and working at least via V8 runtime. Having Async Getters for today we allowed do consder that Setter is also asynchronous, but, unfortunately while being asynchronous indeed we are not allowed to track this operation. So having this code piece below is a scenario when we lack of instrumentation:
+
+
+```js
+
+( async () => {
+	console.log( 'initial : ', await myObj.field );
+	console.log( 'the moment of assignment invocation : ', myObj.field = 321 );
+	console.log( 'real value during changes happening : ', field );
+	console.log( 'reading assigned value after change : ', await myObj.field );
+	console.log( 'real value when changes indeed made : ', field );
+} )();
+
+```
+
+Here we see the moment between assignment operator invocation and real value change today is unpredictable. 
+
+Thus let assume we may use the following construct to keep eye on this somehow:
+
+```js
+
+await myObj.field = value;
+
+```
+
+This means Assignment Operation may have Asynchronous Behaviour for consistency with Async Getter
+
+
+## Real-world scenarios
+
+Let assume given setter produces System of a Record change, and/or may be writes some data to File System or DataBase or produces some other IO operation ...
+
+And moreover we allowed to use the following construct for compatibilyty, but this doesn't mean we track something for assignment, cause Setter is not allowed to return any value, but at least we may track Getter is OK:
+
+```js
+
+await ((myObj.field = value) && myObj.field);
+
+```
+
+Though anyway, this does mean something for that simple scenario, for more complicated code pieces we should save state of work with Assignment somewhere in between and block other assignments and bypass field read process somehow and etc... it is more and more complicated unless we may track Asynchronous Assignment is fulfilled or rejected.
+
+
